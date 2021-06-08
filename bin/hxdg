@@ -1,0 +1,183 @@
+#!/bin/sh
+#L:
+#L:  This software is free to use and modify, but not free to maintain.
+#L:
+#l:  Donate bitcoin: 1C1ZzDje7vHhF23mxqfcACE8QD4nqxywiV
+#l:  Copyright (c) 2018 Openvirtus.com, http://openvirtus.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#L:
+#r: ## HXDG
+#r:
+#h: Usage: $0 ...
+#h:
+#h: This script helps creating desktop entries and assigning mimes to them. This
+#h: is fundamental for oAuth authentication and other mechanisms.
+#h:
+#h:     show            : Show honored environment variables.
+#h:
+#h: ## Get URIs.
+#h:
+#h:     list-uris       : List defined URIs in `~/.config/mimeapps.list`.
+#h:     set-uri URI APP : Set APP.
+#h:     del-uri URI     : Delete URI.
+#h:
+#h: ## Create apps.
+#h:
+#h:     list-apps             : List apps defined in `~/.local/share/applications`.
+#h:     add-app OPTS PRG ARGS : Create application shortcut.
+#h:        -n NAME       -k KEYWORD    -g CATEGORY
+#h:        -c COMMENT    -i ICON       -o PARAM=VALUE
+#h:        -d      : Not a terminal program.
+#h:        -m MIME : Set mimes. This is required for URLs for example http url
+#h:                  `x-scheme-handler/http`.
+#h:     del-app NAME          : Delete application.
+#r:
+hxdg() {
+    local cmd="${1}"; shift
+    case "${cmd}" in
+        show)      hxdg_show_variables;;
+        list-uris) hxdg_list_uris;;
+        set-uri)   hxdg_set_uri "$@";;
+        del-uri)   hxdg_del_uri "$@";;
+        list-apps) hxdg_list_apps;;
+        add-app)   hxdg_add_app "$@";;
+        del-app)   hxdg_del_app "$@";;
+        *)    echo "hxdg: error: Unsupported subcommand \`${cmd}\`." >&2;;
+    esac
+}
+hxdg_calc_variables() {
+    HXDG_CONFIG_DIR="${HXDG_CONFIG_DIR:-${HOME}/.config}"
+    HXDG_MIMEAPPS="${HXDG_MIMEAPPS:-${HXDG_CONFIG_DIR}/mimeapps.list}"
+    HXDG_APPDIR="${HXDG_APPDIR:-${HOME}/.local/share/applications}"
+}
+hxdg_show_variables() {
+    echo "HXDG_CONFIG_DIR : ${HXDG_CONFIG_DIR}"
+    echo "HXDG_MIMEAPPS   : ${HXDG_MIMEAPPS}"
+    echo "HXDG_APPDIR     : ${HXDG_APPDIR}"
+}
+## ------------------------------------------------------------------------
+## ---- URL MIMES ---------------------------------------------------------
+## ------------------------------------------------------------------------
+hxdg_list_uris() {
+    if test -f "${HXDG_MIMEAPPS}";then
+        printf '%s\t%s\n' "URI" "DESKTOP-APP"
+        sed -n 's|^x-scheme-handler/\(.*\)=\(.*\).desktop\;*$|\1\t\2|p' "${HXDG_MIMEAPPS}"
+    fi
+}
+hxdg_del_uri() {
+    local uri="${1}"
+    if test ! -n "${uri}";then echo "hxdg: error: Please specify an URI." >&2; exit 1; fi
+    if test -f "${HXDG_MIMEAPPS}";then
+        sed -i "\\|^x-scheme-handler/${uri}=|d" "${HXDG_MIMEAPPS}"
+    fi
+}
+hxdg_set_uri() {
+    local uri="${1}" app="${2}"
+    hxdg_del_uri "${uri}"
+    if test ! -n "${app}";then echo "hxdg: error: Please specify an APP." >&2; exit 1; fi
+    echo "x-scheme-handler/${uri}=${app}.desktop" >> "${HXDG_MIMEAPPS}"
+}
+
+## ------------------------------------------------------------------------
+## ---- LIST APPS ---------------------------------------------------------
+## ------------------------------------------------------------------------
+hxdg_list_apps() {
+    if test -d "${HXDG_APPDIR}";then
+        ls "${HXDG_APPDIR}" | sed -n 's|\.desktop$||p'
+    fi
+}
+hxdg_add_app() {
+    local name= comment= type=
+    local icon=application-x-executable terminal=true
+    local mimes= keywords= options= categories=
+    local OPTIND optopt= ops=
+    while getopts "n:v:c:i:dm:k:o:g:" optopt;do # OPTARG
+        case $optopt in
+            n)  local name="${OPTARG}"    ;;
+            c)  local comment="${OPTARG}" ;;
+            i)  local icon="${OPTARG}"    ;;
+            d)  local terminal=false      ;;
+            m)  local mimes="${mimes}${OPTARG};";;
+            k)  local keywords="${keywords}${OPTARG};";;
+            g)  local categories="${categories}${OPTARG};";;
+            o)  local options="${options}${OPTARG}
+";;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    ## Get program.
+    if test ! -n "${1}";then
+        echo "hxdg: error: Please specify a program." >&2
+        exit 1
+    fi
+    local program="`which "${1}" 2>/dev/null || true`"
+    if test ! -n "${program}";then
+        echo "hxdg: error: Can't find the program '${1}'." >&2
+        exit 1
+    fi
+    local name="${name:-`basename ${1}`}"
+    ## Get arguments.
+    shift
+    local args="$*"
+    ## Create file.
+    mkdir -p "${HXDG_APPDIR}"
+    echo "Creating ${HXDG_APPDIR}/${name}.desktop ..."
+    cat <<EOF > "${HXDG_APPDIR}/${name}.desktop"
+[Desktop Entry]
+Version=1.0
+Name=${name}
+Comment=${comment}
+Exec=${program} ${args:-%u}
+Icon=${icon}
+Terminal=${terminal}
+Type=Application
+Categories=${categories}
+MimeType=${mimes}
+Keywords=${keywords}
+StartupNotify=false
+${options}
+EOF
+    update-desktop-database -v "${HXDG_APPDIR}" || true
+}
+hxdg_del_app() {
+    local name="$1"
+    if test ! -n "${name}";then
+        echo "hxdg: error: Please specify a name." >&2
+        exit 1
+    fi
+    rm -vf "${HXDG_APPDIR}/${name}.desktop"
+}
+
+
+
+
+## ------------------------------------------------------------------------
+hxdg_calc_variables
+if test @"`basename "$0"`" = @"hxdg";then
+    if test -n "$1";then
+        hxdg "$@"
+    else
+        sed -n 's/^ *#h: \{0,2\}//p' "$0" | sed "s|\\\$0|`basename $0`|g"
+        echo ""
+        sed -n 's/^ *#l: \{0,2\}//p' "$0"
+    fi
+fi
