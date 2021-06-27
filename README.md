@@ -24,6 +24,7 @@
                      `x-scheme-handler/http`.
         del-app NAME          : Delete application.
 
+
 ## DONATIONS
 <ul>
 <li>
